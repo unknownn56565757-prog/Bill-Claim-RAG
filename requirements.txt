@@ -6,3 +6,10 @@ langchain-text-splitters
 chromadb
 google-generativeai
 python-dotenv
+pypdf
+chromadb
+google-generativeai
+python-dotenv
+torch
+sentence-transformers
+

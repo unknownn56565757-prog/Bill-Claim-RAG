@@ -1,86 +1,185 @@
-import sys
 from pathlib import Path
+from pypdf import PdfReader
+from sentence_transformers import SentenceTransformer
+import chromadb
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
+# -----------------------------
+# Configuration
+# -----------------------------
 
-from langchain_core.documents import Document
-from backend.config import settings
-from backend.rag import add_documents
+POLICY_DIR = Path("policy")
+CHROMA_DB_DIR = "chroma_db"
+COLLECTION_NAME = "travel_policies"
 
+# -----------------------------
+# Embedding Model
+# -----------------------------
 
-def load_policy_documents():
+embedding_model = SentenceTransformer(
+    "all-MiniLM-L6-v2"
+)
 
-    policy_dir = Path(settings.policies_dir)
+# -----------------------------
+# Chroma DB
+# -----------------------------
 
-    if not policy_dir.exists():
-        raise FileNotFoundError(
-            f"Policy directory not found: {policy_dir}"
+client = chromadb.PersistentClient(
+    path=CHROMA_DB_DIR
+)
+
+collection = client.get_or_create_collection(
+    name=COLLECTION_NAME
+)
+
+# -----------------------------
+# PDF Text Extraction
+# -----------------------------
+
+def extract_pdf_text(pdf_path):
+
+    reader = PdfReader(str(pdf_path))
+
+    text = ""
+
+    for page in reader.pages:
+
+        page_text = page.extract_text()
+
+        if page_text:
+            text += page_text + "\n"
+
+    return text
+
+# -----------------------------
+# Chunking
+# -----------------------------
+
+def chunk_text(
+    text,
+    chunk_size=1000,
+    overlap=200
+):
+
+    chunks = []
+
+    start = 0
+
+    while start < len(text):
+
+        end = start + chunk_size
+
+        chunks.append(
+            text[start:end]
         )
 
-    documents = []
+        start += chunk_size - overlap
 
-    for file_path in policy_dir.iterdir():
+    return chunks
 
-        if not file_path.is_file():
-            continue
+# -----------------------------
+# Generate Embedding
+# -----------------------------
 
-        if file_path.suffix.lower() not in [".txt", ".md"]:
-            continue
+def get_embedding(text):
 
-        try:
-            text = file_path.read_text(
-                encoding="utf-8"
-            )
-        except Exception as e:
-            print(
-                f"Failed to read {file_path.name}: {e}"
-            )
-            continue
+    return embedding_model.encode(
+        text
+    ).tolist()
 
-        if not text.strip():
-            print(
-                f"Skipping empty file: {file_path.name}"
-            )
-            continue
+# -----------------------------
+# Ingestion
+# -----------------------------
 
-        documents.append(
-            Document(
-                page_content=text,
-                metadata={
-                    "source": file_path.name
-                }
-            )
-        )
+def ingest_documents():
 
-        print(f"Loaded: {file_path.name}")
-
-    return documents
-
-
-def main():
-
-    print("=" * 60)
-    print("POLICY INGESTION")
-    print("=" * 60)
-
-    docs = load_policy_documents()
-
-    print(f"\nDocuments loaded: {len(docs)}")
-
-    if not docs:
-        print("No policy files found.")
-        return
-
-    count = add_documents(docs)
-
-    print(f"Chunks indexed: {count}")
-
-    print("\nIngestion completed successfully.")
-    print(
-        f"Vector DB ocation: {settings.chroma_dir}"
+    pdf_files = list(
+        POLICY_DIR.glob("*.pdf")
     )
 
+    if not pdf_files:
+        print(
+            "No PDF files found in policy folder."
+        )
+        return
+
+    total_chunks = 0
+
+    for pdf_file in pdf_files:
+
+        print(
+            f"\nProcessing: {pdf_file.name}"
+        )
+
+        try:
+
+            text = extract_pdf_text(
+                pdf_file
+            )
+
+            if not text.strip():
+
+                print(
+                    f"Skipping empty file: {pdf_file.name}"
+                )
+                continue
+
+            chunks = chunk_text(text)
+
+            print(
+                f"Created {len(chunks)} chunks"
+            )
+
+            for index, chunk in enumerate(chunks):
+
+                embedding = get_embedding(
+                    chunk
+                )
+
+                collection.add(
+                    ids=[
+                        f"{pdf_file.stem}_{index}"
+                    ],
+                    documents=[
+                        chunk
+                    ],
+                    embeddings=[
+                        embedding
+                    ],
+                    metadatas=[
+                        {
+                            "source": pdf_file.name,
+                            "chunk": index
+                        }
+                    ]
+                )
+
+                total_chunks += 1
+
+            print(
+                f"Completed: {pdf_file.name}"
+            )
+
+        except Exception as e:
+
+            print(
+                f"Failed to process {pdf_file.name}: {e}"
+            )
+
+    print("\n================================")
+    print(
+        f"Total chunks stored: {total_chunks}"
+    )
+    print(
+        "Ingestion completed successfully."
+    )
+    print("================================")
+
+# -----------------------------
+# Main
+# -----------------------------
 
 if __name__ == "__main__":
-    main()
+    ingest_documents()
+
+print("Ingestion completed successfully.")
+print("================================")

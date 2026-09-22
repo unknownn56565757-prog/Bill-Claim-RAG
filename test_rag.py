@@ -1,19 +1,18 @@
-from backend.rag import search_policy
-from llm import answer_question
+from backend.rag import retrieve_context
 
 while True:
 
-    query = input("\nAsk: ")
+    query = input(
+        "\nAsk a question (or type 'exit'): "
+    )
 
     if query.lower() == "exit":
         break
 
-    context = search_policy(query)
+    context = retrieve_context(query)
 
-    answer = answer_question(
-        question=query,
-        context=context
-    )
+    print("\n========================")
+    print("RETRIEVED CONTEXT")
+    print("========================\n")
 
-    print("\nAnswer:")
-    print(answer)
+    print(context)
