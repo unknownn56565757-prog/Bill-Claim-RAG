@@ -110,11 +110,11 @@ export default function SignIn() {
           </p>
         </div>
 
-        <div className="mt-4 rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs text-slate-500">
+        {/* <div className="mt-4 rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs text-slate-500">
           <p className="font-medium text-slate-600 mb-1">Demo accounts:</p>
           <p>Employee: sarah.chen@company.com / password123</p>
           <p>Approver: jane.doe@company.com / approver123</p>
-        </div>
+        </div> */}
       </div>
     </div>
   );
