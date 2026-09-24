@@ -1,1 +1,14 @@
 .env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Local databases
+database/
+chroma_db/
+
+# Frontend
+front-end/project/node_modules/
+front-end/project/dist/

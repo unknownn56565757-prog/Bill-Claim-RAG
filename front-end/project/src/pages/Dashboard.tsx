@@ -1,225 +1,242 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Plus, FileText, TrendingUp, Clock, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { useRef, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import * as api from '@/api/client';
-import type { Claim } from '@/types';
-import StatusBadge from '@/components/StatusBadge';
-import { SkeletonCard } from '@/components/Skeletons';
+import { API_BASE } from '@/api/client';
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
 }
-
-function formatCurrency(amount: number, currency: string): string {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount);
-}
-
-const categoryIcons: Record<string, string> = {
-  Food: '🍽️',
-  Travel: '✈️',
-  Medical: '⚕️',
-  Accommodation: '🏨',
-  Other: '📦',
-};
 
 export default function Dashboard() {
-  const { user } = useAuth();
-  const [claims, setClaims] = useState<Claim[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { user, signOut } = useAuth();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (!user) return;
-    api
-      .fetchEmployeeClaims(user.employeeId)
-      .then((data) => {
-        setClaims(data);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, [user]);
+  const [question, setQuestion] = useState('');
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  const stats = {
-    total: claims.length,
-    pending: claims.filter((c) =>
-      ['Submitted', 'Under Review', 'Discrepancy', 'Pending Approval'].includes(c.status)
-    ).length,
-    approved: claims.filter((c) => c.status === 'Approved').length,
-    totalAmount: claims
-      .filter((c) => c.status === 'Approved')
-      .reduce((sum, c) => sum + c.claimedAmount, 0),
-  };
+  function handleChooseImage() {
+    fileInputRef.current?.click();
+  }
+
+  function handleFileChange(
+    event: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const file = event.target.files?.[0];
+
+    if (file) {
+      console.log('Selected file:', file);
+    }
+  }
+
+  async function handleAsk() {
+    const trimmedQuestion = question.trim();
+
+    if (!trimmedQuestion || loading) {
+      return;
+    }
+
+    setMessages((previous) => [
+      ...previous,
+      {
+        role: 'user',
+        content: trimmedQuestion,
+      },
+    ]);
+
+    setQuestion('');
+    setLoading(true);
+
+    try {
+      const response = await fetch(`${API_BASE}/rag/query`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          question: trimmedQuestion,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'RAG request failed');
+      }
+
+      setMessages((previous) => [
+        ...previous,
+        {
+          role: 'assistant',
+          content: data.answer,
+        },
+      ]);
+    } catch (error) {
+      setMessages((previous) => [
+        ...previous,
+        {
+          role: 'assistant',
+          content:
+            error instanceof Error
+              ? error.message
+              : 'Something went wrong while contacting the backend.',
+        },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleKeyDown(
+    event: React.KeyboardEvent<HTMLInputElement>
+  ) {
+    if (event.key === 'Enter') {
+      handleAsk();
+    }
+  }
 
   return (
-    <div className="animate-fade-in">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">My Claims</h1>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Track and manage your expense bill claims.
-          </p>
-        </div>
-        <Link
-          to="/claims/new"
-          className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition-colors"
-        >
-          <Plus className="h-4 w-4" />
-          New Claim
-        </Link>
-      </div>
+    <div className="min-h-screen bg-gray-100">
+      <header className="bg-white border-b">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">
+              Bill Claim RAG
+            </h1>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <StatCard
-          icon={<FileText className="h-5 w-5" />}
-          label="Total Claims"
-          value={String(stats.total)}
-          color="slate"
-        />
-        <StatCard
-          icon={<Clock className="h-5 w-5" />}
-          label="In Progress"
-          value={String(stats.pending)}
-          color="amber"
-        />
-        <StatCard
-          icon={<CheckCircle2 className="h-5 w-5" />}
-          label="Approved"
-          value={String(stats.approved)}
-          color="emerald"
-        />
-        <StatCard
-          icon={<TrendingUp className="h-5 w-5" />}
-          label="Reimbursed"
-          value={formatCurrency(stats.totalAmount, 'USD')}
-          color="brand"
-        />
-      </div>
+            <p className="text-sm text-gray-500">
+              Welcome, {user?.name}
+            </p>
+          </div>
 
-      {/* Claims list */}
-      {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {[0, 1, 2, 3, 4, 5].map((i) => (
-            <SkeletonCard key={i} />
-          ))}
+          <button
+            onClick={signOut}
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Logout
+          </button>
         </div>
-      ) : claims.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-white p-12 text-center">
-          <AlertTriangle className="mx-auto h-10 w-10 text-slate-300" />
-          <p className="mt-3 text-sm font-medium text-slate-600">No claims yet</p>
-          <p className="mt-1 text-sm text-slate-400">
-            Click "New Claim" to submit your first expense bill.
-          </p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {claims.map((claim) => (
-            <Link
-              key={claim.id}
-              to={`/claims/${claim.id}`}
-              className="group rounded-xl border border-slate-200 bg-white p-5 shadow-card hover:shadow-card-hover hover:border-slate-300 transition-all cursor-pointer animate-slide-up"
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-lg">
-                    {categoryIcons[claim.category]}
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">{claim.category}</p>
-                    <p className="text-xs text-slate-500">
-                      {formatDate(claim.submittedAt)}
-                    </p>
-                  </div>
-                </div>
-                <StatusBadge status={claim.status} size="sm" />
-              </div>
+      </header>
 
-              <div className="mt-4 flex items-end justify-between">
-                <div>
-                  <p className="text-xs text-slate-500 font-medium uppercase tracking-wide">
-                    Claimed
-                  </p>
-                  <p className="text-lg font-bold text-slate-900">
-                    {formatCurrency(claim.claimedAmount, claim.currency)}
+      <main className="max-w-7xl mx-auto px-6 py-8">
+        <h2 className="text-2xl font-bold text-gray-900 mb-6">
+          Dashboard
+        </h2>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* RAG CHAT */}
+          <section className="bg-white rounded-xl shadow-sm border p-6 min-h-[500px]">
+            <h3 className="text-lg font-semibold text-gray-900">
+              Policy Assistant
+            </h3>
+
+            <p className="text-sm text-gray-500 mt-1">
+              Ask questions about company policies and travel claims.
+            </p>
+
+            <div className="mt-6 h-80 rounded-lg bg-gray-50 border p-4 overflow-y-auto">
+              {messages.length === 0 ? (
+                <div className="h-full flex items-center justify-center">
+                  <p className="text-gray-400">
+                    Ask a question to get started.
                   </p>
                 </div>
-                <div className="text-right">
-                  <p className="text-xs text-slate-500 font-medium uppercase tracking-wide">
-                    Extracted
-                  </p>
-                  <p
-                    className={`text-sm font-semibold ${
-                      claim.extracted.total === claim.claimedAmount
-                        ? 'text-emerald-600'
-                        : claim.extracted.total > 0
-                        ? 'text-amber-600'
-                        : 'text-slate-400'
-                    }`}
-                  >
-                    {claim.extracted.total > 0
-                      ? formatCurrency(claim.extracted.total, claim.extracted.currency)
-                      : '—'}
-                  </p>
+              ) : (
+                <div className="space-y-4">
+                  {messages.map((message, index) => (
+                    <div
+                      key={index}
+                      className={
+                        message.role === 'user'
+                          ? 'text-right'
+                          : 'text-left'
+                      }
+                    >
+                      <div
+                        className={
+                          message.role === 'user'
+                            ? 'inline-block max-w-[85%] rounded-lg bg-blue-600 px-4 py-2 text-white'
+                            : 'inline-block max-w-[85%] rounded-lg bg-white border px-4 py-2 text-gray-800'
+                        }
+                      >
+                        {message.content}
+                      </div>
+                    </div>
+                  ))}
+
+                  {loading && (
+                    <div className="text-left">
+                      <div className="inline-block rounded-lg bg-white border px-4 py-2 text-gray-500">
+                        Asking the policy assistant...
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
+              )}
+            </div>
 
-              {claim.extracted.total > 0 &&
-                claim.extracted.total !== claim.claimedAmount && (
-                  <div className="mt-3 flex items-center gap-1.5 rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-1.5 text-xs text-amber-700">
-                    <AlertTriangle className="h-3.5 w-3.5" />
-                    Discrepancy of{' '}
-                    {formatCurrency(
-                      Math.abs(claim.claimedAmount - claim.extracted.total),
-                      claim.currency
-                    )}
-                  </div>
-                )}
+            <div className="mt-4 flex gap-2">
+              <input
+                type="text"
+                value={question}
+                onChange={(event) =>
+                  setQuestion(event.target.value)
+                }
+                onKeyDown={handleKeyDown}
+                placeholder="Ask a question..."
+                disabled={loading}
+                className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 outline-none focus:border-blue-500 disabled:bg-gray-100"
+              />
 
-              <div className="mt-3 flex items-center gap-1.5 text-xs text-slate-400">
-                <span>{claim.files.length} file(s)</span>
-                <span>·</span>
-                <span className="font-mono">{claim.id}</span>
-              </div>
-            </Link>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+              <button
+                type="button"
+                onClick={handleAsk}
+                disabled={loading || !question.trim()}
+                className="rounded-lg bg-blue-600 px-5 py-2.5 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {loading ? 'Sending...' : 'Send'}
+              </button>
+            </div>
+          </section>
 
-function StatCard({
-  icon,
-  label,
-  value,
-  color,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  color: 'slate' | 'amber' | 'emerald' | 'brand';
-}) {
-  const colorMap = {
-    slate: 'bg-slate-100 text-slate-600',
-    amber: 'bg-amber-100 text-amber-600',
-    emerald: 'bg-emerald-100 text-emerald-600',
-    brand: 'bg-brand-100 text-brand-600',
-  };
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-card">
-      <div className="flex items-center gap-3">
-        <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${colorMap[color]}`}>
-          {icon}
+          {/* BILL UPLOAD */}
+          <section className="bg-white rounded-xl shadow-sm border p-6 min-h-[500px]">
+            <h3 className="text-lg font-semibold text-gray-900">
+              Bill Analyzer
+            </h3>
+
+            <p className="text-sm text-gray-500 mt-1">
+              Upload a bill or receipt for analysis.
+            </p>
+
+            <div className="mt-6 h-80 rounded-lg bg-gray-50 border-2 border-dashed border-gray-300 flex flex-col items-center justify-center">
+              <p className="text-gray-500 mb-4">
+                Choose an image to upload
+              </p>
+
+              <button
+                type="button"
+                onClick={handleChooseImage}
+                className="rounded-lg bg-blue-600 px-5 py-2.5 font-medium text-white hover:bg-blue-700"
+              >
+                Choose Image
+              </button>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+            </div>
+
+            <p className="text-xs text-gray-400 mt-4">
+              Image processing endpoint will be connected later.
+            </p>
+          </section>
         </div>
-        <div>
-          <p className="text-xs text-slate-500 font-medium">{label}</p>
-          <p className="text-lg font-bold text-slate-900">{value}</p>
-        </div>
-      </div>
+      </main>
     </div>
   );
 }

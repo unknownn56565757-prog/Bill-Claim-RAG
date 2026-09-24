@@ -1,65 +1,43 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+
 import { AuthProvider } from '@/context/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
-import Layout from '@/components/Layout';
+
 import SignIn from '@/pages/SignIn';
 import SignUp from '@/pages/SignUp';
 import Dashboard from '@/pages/Dashboard';
-import NewClaim from '@/pages/NewClaim';
-import ClaimDetail from '@/pages/ClaimDetail';
-import ApproverDashboard from '@/pages/ApproverDashboard';
 
-export default function App() {
+function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
+    <BrowserRouter>
+      <AuthProvider>
         <Routes>
           <Route path="/signin" element={<SignIn />} />
+
           <Route path="/signup" element={<SignUp />} />
+
           <Route
             path="/dashboard"
             element={
               <ProtectedRoute>
-                <Layout>
-                  <Dashboard />
-                </Layout>
+                <Dashboard />
               </ProtectedRoute>
             }
           />
+
           <Route
-            path="/claims/new"
-            element={
-              <ProtectedRoute>
-                <Layout>
-                  <NewClaim />
-                </Layout>
-              </ProtectedRoute>
-            }
+            path="/"
+            element={<Navigate to="/signin" replace />}
           />
+
           <Route
-            path="/claims/:id"
-            element={
-              <ProtectedRoute>
-                <Layout>
-                  <ClaimDetail />
-                </Layout>
-              </ProtectedRoute>
-            }
+            path="*"
+            element={<Navigate to="/signin" replace />}
           />
-          <Route
-            path="/approver"
-            element={
-              <ProtectedRoute requireApprover>
-                <Layout>
-                  <ApproverDashboard />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
-      </BrowserRouter>
-    </AuthProvider>
+      </AuthProvider>
+    </BrowserRouter>
   );
 }
+
+export default App;

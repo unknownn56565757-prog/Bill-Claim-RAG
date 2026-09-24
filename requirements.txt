@@ -7,9 +7,13 @@ chromadb
 google-generativeai
 python-dotenv
 pypdf
-chromadb
-google-generativeai
-python-dotenv
 torch
 sentence-transformers
 
+fastapi
+uvicorn
+sqlalchemy
+python-jose[cryptography]
+pwdlib[argon2]
+python-multipart
+email-validator

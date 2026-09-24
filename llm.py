@@ -1,8 +1,10 @@
 import os
+
 from dotenv import load_dotenv
-import google.generativeai as genai
+from google import genai
 
 from backend.rag import retrieve_context
+
 
 # --------------------------------
 # Load Environment Variables
@@ -17,15 +19,15 @@ if not GOOGLE_API_KEY:
         "GOOGLE_API_KEY not found in .env file"
     )
 
+
 # --------------------------------
 # Configure Gemini
 # --------------------------------
 
-genai.configure(api_key=GOOGLE_API_KEY)
-
-model = genai.GenerativeModel(
-    "gemini-3.6-flash"
+client = genai.Client(
+    api_key=GOOGLE_API_KEY
 )
+
 
 # --------------------------------
 # Answer Question
@@ -80,8 +82,9 @@ Final Answer:
 
     try:
 
-        response = model.generate_content(
-            prompt
+        response = client.models.generate_content(
+            model="gemini-flash-lite-latest",
+            contents=prompt
         )
 
         return response.text.strip()
@@ -91,6 +94,7 @@ Final Answer:
         return (
             f"Error generating answer: {str(e)}"
         )
+
 
 # --------------------------------
 # Interactive Test
