@@ -36,6 +36,11 @@ const statusConfig: Record<ClaimStatus, { label: string; classes: string; dot: s
     classes: 'bg-orange-50 text-orange-700 border-orange-200',
     dot: 'bg-orange-500',
   },
+  Closed: {
+    label: 'Closed',
+    classes: 'bg-slate-100 text-slate-600 border-slate-200',
+    dot: 'bg-slate-400',
+  },
 };
 
 export default function StatusBadge({

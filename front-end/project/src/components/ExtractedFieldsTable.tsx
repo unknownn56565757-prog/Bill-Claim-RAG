@@ -10,10 +10,12 @@ export default function ExtractedFieldsTable({
   extracted,
   claimedAmount,
   currency,
+  onSave,
 }: {
   extracted: ExtractedFields;
   claimedAmount: number;
   currency: string;
+  onSave?: (fields: ExtractedFields) => Promise<void> | void;
 }) {
   const [editing, setEditing] = useState(false);
   const [fields, setFields] = useState<ExtractedFields>(extracted);
@@ -73,8 +75,10 @@ export default function ExtractedFieldsTable({
         {editing ? (
           <div className="flex items-center gap-1">
             <button
-              onClick={() => {
-                setFields((f) => ({ ...f, total: computedTotal }));
+              onClick={async () => {
+                const updated = { ...fields, total: computedTotal };
+                setFields(updated);
+                await onSave?.(updated);
                 setEditing(false);
               }}
               className="flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100 transition-colors"

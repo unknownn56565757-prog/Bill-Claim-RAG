@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Send, Sparkles, BookOpen, ChevronDown, ChevronUp } from 'lucide-react';
-import type { ChatMessage, Citation, QuickReply } from '@/types';
+import type { ChatMessage, Citation } from '@/types';
 import * as api from '@/api/client';
 
 function formatTime(ts: string): string {
@@ -22,6 +22,7 @@ export default function ChatPanel({
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [input, setInput] = useState('');
   const [isAiTyping, setIsAiTyping] = useState(false);
+  const [error, setError] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -41,18 +42,25 @@ export default function ChatPanel({
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages, isAiTyping]);
 
-  function handleSend(text: string) {
+  async function handleSend(text: string) {
     if (!text.trim() || disabled) return;
-    api.sendChatMessage(claimId, text.trim());
+    setError('');
+    setIsAiTyping(true);
     setInput('');
-    inputRef.current?.focus();
+    try {
+      const updated = await api.sendChatMessage(claimId, text.trim());
+      setMessages(updated.chat);
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : 'Unable to send message');
+    } finally {
+      setIsAiTyping(false);
+      inputRef.current?.focus();
+    }
   }
 
-  function handleQuickReply(reply: QuickReply) {
-    api.sendQuickReply(claimId, reply);
-  setMessages((prev) =>
-      prev.map((m) => ({ ...m, quickReplies: undefined }))
-    );
+  async function handleQuickReply(reply: string) {
+    setMessages((prev) => prev.map((m) => ({ ...m, quickReplies: undefined })));
+    await handleSend(reply);
   }
 
   return (
@@ -100,6 +108,7 @@ export default function ChatPanel({
 
       {/* Input */}
       <div className="border-t border-slate-200 p-3 bg-white">
+        {error && <p className="mb-2 text-xs text-red-600">{error}</p>}
         <div className="flex items-center gap-2">
           <input
             ref={inputRef}
@@ -134,14 +143,14 @@ function MessageBubble({
   onQuickReply,
 }: {
   message: ChatMessage;
-  onQuickReply: (reply: QuickReply) => void;
+  onQuickReply: (reply: string) => void;
 }) {
   if (message.role === 'system') {
     return (
       <div className="flex justify-center animate-fade-in">
         <div className="flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1.5 text-xs text-slate-500">
           <span className="h-1 w-1 rounded-full bg-slate-400" />
-          {message.text}
+          <FormattedMessage text={message.text} />
           <span className="text-slate-300">·</span>
           {formatTime(message.timestamp)}
         </div>
@@ -202,6 +211,69 @@ function MessageBubble({
         </p>
       </div>
     </div>
+  );
+}
+
+function FormattedMessage({ text }: { text: string }) {
+  const sections = text
+    .replace(/\s+(?=\d+\.\s+)/g, '\n')
+    .split('\n')
+    .map((section) => section.trim())
+    .filter(Boolean);
+  const blocks: React.ReactNode[] = [];
+  let index = 0;
+
+  while (index < sections.length) {
+    const section = sections[index];
+    if (section.startsWith('|') && sections[index + 1]?.includes('|')) {
+      const rows: string[][] = [];
+      while (index < sections.length && sections[index].startsWith('|')) {
+        const row = sections[index];
+        if (!/^\|?\s*:?-{2,}/.test(row.replace(/\|/g, '').trim())) {
+          rows.push(row.split('|').slice(1, -1).map((cell) => cell.trim()));
+        }
+        index += 1;
+      }
+      blocks.push(
+        <div key={`table-${index}`} className="overflow-hidden rounded-lg border border-slate-200 text-xs">
+          {rows.map((row, rowIndex) => (
+            <div key={rowIndex} className={`grid grid-cols-2 gap-3 px-3 py-2 ${rowIndex === 0 ? 'bg-slate-50 font-semibold text-slate-700' : 'border-t border-slate-100 text-slate-600'}`}>
+              {row.map((cell, cellIndex) => <span key={cellIndex}><FormattedInlineText text={cell} /></span>)}
+            </div>
+          ))}
+        </div>
+      );
+      continue;
+    }
+
+    const heading = section.match(/^#{2,3}\s+(.+)/);
+    if (heading) {
+      blocks.push(<h4 key={`heading-${index}`} className="pt-1 text-xs font-bold uppercase tracking-wide text-slate-700"><FormattedInlineText text={heading[1]} /></h4>);
+    } else if (/^[-*]\s+/.test(section)) {
+      blocks.push(<div key={`bullet-${index}`} className="flex gap-2"><span className="text-brand-500">•</span><span><FormattedInlineText text={section.replace(/^[-*]\s+/, '')} /></span></div>);
+    } else {
+      blocks.push(<p key={`paragraph-${index}`}><FormattedInlineText text={section} /></p>);
+    }
+    index += 1;
+  }
+
+  return <div className="space-y-2 leading-relaxed">{blocks}</div>;
+}
+
+function FormattedInlineText({ text }: { text: string }) {
+  const parts = text.split(/(\*\*.*?\*\*)/g);
+  return (
+    <>
+      {parts.map((part, index) =>
+        part.startsWith('**') && part.endsWith('**') ? (
+          <strong key={index} className="font-semibold text-slate-900">
+            {part.slice(2, -2)}
+          </strong>
+        ) : (
+          <span key={index}>{part}</span>
+        )
+      )}
+    </>
   );
 }
 

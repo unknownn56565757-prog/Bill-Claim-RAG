@@ -12,9 +12,11 @@ const stepLabels: Record<TimelineStep, string> = {
   Submitted: 'Submitted',
   Reconciled: 'Reconciled',
   'Policy Check': 'Policy Check',
+  'Pending Approval': 'Pending Approval',
   Approved: 'Approved',
   Denied: 'Denied',
   Escalated: 'Escalated',
+  Closed: 'Closed',
 };
 
 export default function StatusTimeline({
@@ -26,7 +28,10 @@ export default function StatusTimeline({
   currentStep: TimelineStep;
   denied?: boolean;
 }) {
-  const steps = denied
+  const closed = currentStep === 'Closed';
+  const steps = closed
+    ? (['Submitted', 'Closed'] as TimelineStep[])
+    : denied
     ? (['Submitted', 'Reconciled', 'Policy Check', 'Denied'] as TimelineStep[])
     : allSteps;
 
@@ -37,9 +42,12 @@ export default function StatusTimeline({
       {steps.map((step, i) => {
         const isCompleted = denied
           ? i < 3
+          : closed
+          ? i < 1
           : i < currentIndex;
         const isCurrent = i === currentIndex;
         const isDenied = denied && step === 'Denied';
+        const isClosed = closed && step === 'Closed';
         const isEscalated = currentStep === 'Escalated' && step === 'Policy Check';
 
         return (
@@ -51,6 +59,8 @@ export default function StatusTimeline({
                     ? 'bg-red-500 border-red-500 text-white'
                     : isCompleted
                     ? 'bg-emerald-500 border-emerald-500 text-white'
+                    : isClosed
+                    ? 'bg-slate-500 border-slate-500 text-white'
                     : isCurrent && !isEscalated
                     ? 'bg-brand-500 border-brand-500 text-white'
                     : isEscalated
@@ -70,6 +80,8 @@ export default function StatusTimeline({
                 className={`text-[10px] font-medium whitespace-nowrap ${
                   isDenied
                     ? 'text-red-600'
+                    : isClosed
+                    ? 'text-slate-600'
                     : isCompleted
                     ? 'text-emerald-600'
                     : isCurrent

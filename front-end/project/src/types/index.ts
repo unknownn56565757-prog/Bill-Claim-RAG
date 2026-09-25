@@ -23,7 +23,8 @@ export type ClaimStatus =
   | 'Pending Approval'
   | 'Approved'
   | 'Denied'
-  | 'Escalated';
+  | 'Escalated'
+  | 'Closed';
 
 export type TimelineStep =
   | 'Submitted'
@@ -32,7 +33,8 @@ export type TimelineStep =
   | 'Pending Approval'
   | 'Approved'
   | 'Denied'
-  | 'Escalated';
+  | 'Escalated'
+  | 'Closed';
 
 export interface LineItem {
   id: string;
@@ -69,14 +71,17 @@ export type QuickReply =
   | 'It was a typo'
   | "I'll upload another bill"
   | 'Dispute this'
-  | 'Confirm correct';
+  | 'Confirm correct'
+  | 'Continue with accommodation'
+  | 'Keep reviewing Food'
+  | (string & {});
 
 export interface ChatMessage {
   id: string;
   role: ChatMessageRole;
   text: string;
   timestamp: string;
-  quickReplies?: QuickReply[];
+  quickReplies?: string[];
   citations?: Citation[];
   isTyping?: boolean;
 }
@@ -97,6 +102,13 @@ export interface Claim {
   chat: ChatMessage[];
   approverNote?: string;
   escalatedTo?: string;
+  policy?: {
+    claimableAmount: number;
+    status: string;
+    reason: string;
+    policyContext?: string;
+    humanConfirmed: boolean;
+  };
 }
 
 export interface AuthResponse {

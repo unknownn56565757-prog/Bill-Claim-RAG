@@ -30,6 +30,8 @@ export default function ClaimDetail() {
   const [loading, setLoading] = useState(true);
   const [approverNote, setApproverNote] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  const [claimableAmount, setClaimableAmount] = useState('');
+  const [reviewError, setReviewError] = useState('');
 
   useEffect(() => {
     if (!id) return;
@@ -38,6 +40,7 @@ export default function ClaimDetail() {
       .then((data) => {
         setClaim(data);
         setApproverNote(data.approverNote || '');
+        setClaimableAmount(String(data.policy?.claimableAmount ?? data.extracted.total));
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -93,11 +96,48 @@ export default function ClaimDetail() {
     );
   }
 
-  const isDenied = claim.status === 'Denied';
+  const isDenied = claim.status === 'Denied' || claim.status === 'Closed';
   const isApproved = claim.status === 'Approved';
   const canApprove =
     isApprover &&
     ['Pending Approval', 'Discrepancy', 'Under Review'].includes(claim.status);
+  const claimId = claim.id;
+
+  async function confirmClaimableAmount(approved: boolean) {
+    setActionLoading(true);
+    try {
+      const updated = await api.proceedClaim(claimId, approved, Number(claimableAmount));
+      setClaim(updated);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function retryOcr() {
+    setActionLoading(true);
+    setReviewError('');
+    try {
+      const updated = await api.retryOcr(claimId);
+      setClaim(updated);
+      setClaimableAmount(String(updated.extracted.total));
+    } catch (error) {
+      setReviewError(error instanceof Error ? error.message : 'OCR retry failed');
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function closeClaim() {
+    setActionLoading(true);
+    setReviewError('');
+    try {
+      setClaim(await api.closeClaim(claimId));
+    } catch (error) {
+      setReviewError(error instanceof Error ? error.message : 'Could not close claim');
+    } finally {
+      setActionLoading(false);
+    }
+  }
 
   return (
     <div className="animate-fade-in">
@@ -139,6 +179,26 @@ export default function ClaimDetail() {
         />
       </div>
 
+      {claim.status === 'Under Review' && !claim.policy?.humanConfirmed && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-amber-900">Human review required</h2>
+              <p className="mt-1 max-w-2xl whitespace-pre-line text-sm text-amber-800">{claim.policy?.reason}</p>
+              {reviewError && <p className="mt-2 text-xs text-red-700">{reviewError}</p>}
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <label className="text-xs font-semibold text-amber-900" htmlFor="claimable-amount">Claimable</label>
+              <input id="claimable-amount" type="number" min="0" step="0.01" value={claimableAmount} onChange={(event) => setClaimableAmount(event.target.value)} className="w-28 rounded-md border border-amber-300 bg-white px-2 py-1.5 text-sm" />
+              <button onClick={() => confirmClaimableAmount(true)} disabled={actionLoading} className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60">Confirm and proceed</button>
+              <button onClick={() => confirmClaimableAmount(false)} disabled={actionLoading} className="rounded-md border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-700 disabled:opacity-60">Reject</button>
+              <button onClick={retryOcr} disabled={actionLoading} className="rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 disabled:opacity-60">Retry OCR</button>
+              <button onClick={closeClaim} disabled={actionLoading} className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-60">Close claim</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main content: two panels */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 h-[calc(100vh-320px)] min-h-[500px]">
         {/* Left: Bill viewer + extracted fields */}
@@ -151,6 +211,10 @@ export default function ClaimDetail() {
               extracted={claim.extracted}
               claimedAmount={claim.claimedAmount}
               currency={claim.currency}
+              onSave={async (fields) => {
+                const updated = await api.updateExtractedFields(claim.id, fields);
+                setClaim(updated);
+              }}
             />
           </div>
         </div>

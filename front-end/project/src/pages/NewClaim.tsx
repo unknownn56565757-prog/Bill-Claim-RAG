@@ -15,7 +15,6 @@ import {
   Loader2,
   ScanLine,
   CheckCircle2,
-  DollarSign,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import * as api from '@/api/client';
@@ -29,8 +28,6 @@ const categories: { value: ClaimCategory; icon: React.ElementType; desc: string 
   { value: 'Other', icon: Package, desc: 'Office supplies, misc expenses' },
 ];
 
-const currencies = ['USD', 'EUR', 'GBP', 'INR', 'JPY'];
-
 interface UploadedFile {
   id: string;
   name: string;
@@ -38,6 +35,7 @@ interface UploadedFile {
   url: string;
   size: number;
   preview?: string;
+  file: File;
 }
 
 const placeholderImages = [
@@ -50,7 +48,7 @@ const placeholderImages = [
 export default function NewClaim() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(2);
   const [category, setCategory] = useState<ClaimCategory | null>(null);
   const [amount, setAmount] = useState('');
   const [currency, setCurrency] = useState('USD');
@@ -58,6 +56,7 @@ export default function NewClaim() {
   const [dragActive, setDragActive] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [submitError, setSubmitError] = useState('');
   const [createdClaimId, setCreatedClaimId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -71,7 +70,7 @@ export default function NewClaim() {
     if (!fileList) return;
     const newFiles: UploadedFile[] = Array.from(fileList).map((file, i) => {
       const isPdf = file.type === 'application/pdf';
-      const placeholder = placeholderImages[i % placeholderImages.length];
+      const placeholder = file.type.startsWith('image/') ? URL.createObjectURL(file) : placeholderImages[i % placeholderImages.length];
       return {
         id: `up-${Date.now()}-${i}`,
         name: file.name,
@@ -79,6 +78,7 @@ export default function NewClaim() {
         url: placeholder,
         size: file.size,
         preview: isPdf ? undefined : placeholder,
+        file,
       };
     });
     setFiles((prev) => [...prev, ...newFiles]);
@@ -96,28 +96,23 @@ export default function NewClaim() {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!user || !category || !amount) return;
+    if (!user || files.length === 0) return;
     setSubmitting(true);
+    setSubmitError('');
+    setProcessing(true);
     try {
       const claim = await api.submitClaim(user.employeeId, user.name, {
-        category,
-        claimedAmount: parseFloat(amount),
+        category: category || 'Other',
+        claimedAmount: parseFloat(amount) || 0,
         currency,
-        files: files.map((f) => ({
-          name: f.name,
-          type: f.type,
-          url: f.url,
-          size: f.size,
-        })),
+        files: files.map((f) => f.file),
       });
       setCreatedClaimId(claim.id);
-      setProcessing(true);
-      // Simulate OCR processing
-      await api.processClaimExtraction(claim.id);
+      navigate(`/claims/${claim.id}`);
+    } catch (error) {
       setProcessing(false);
-      setTimeout(() => navigate(`/claims/${claim.id}`), 600);
-    } catch {
       setSubmitting(false);
+      setSubmitError(error instanceof Error ? error.message : 'OCR processing failed');
     }
   }
 
@@ -192,6 +187,11 @@ export default function NewClaim() {
       </div>
 
       <form onSubmit={handleSubmit} className="rounded-2xl border border-slate-200 bg-white shadow-card p-6">
+        {submitError && (
+          <div className="mb-5 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {submitError}
+          </div>
+        )}
         {/* Step 1: Category */}
         {step === 1 && (
           <div className="animate-fade-in">
@@ -247,39 +247,6 @@ export default function NewClaim() {
         {/* Step 2: Amount + Upload */}
         {step === 2 && (
           <div className="animate-fade-in space-y-5">
-            <div>
-              <label htmlFor="amount" className="block text-sm font-semibold text-slate-700 mb-1.5">
-                Claimed Amount
-              </label>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                  <input
-                    id="amount"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    required
-                    placeholder="0.00"
-                    className="w-full rounded-lg border border-slate-300 pl-9 pr-3 py-2.5 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-100 focus:outline-none"
-                  />
-                </div>
-                <select
-                  value={currency}
-                  onChange={(e) => setCurrency(e.target.value)}
-                  className="rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-medium text-slate-700 focus:border-brand-500 focus:ring-2 focus:ring-brand-100 focus:outline-none"
-                >
-                  {currencies.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-1.5">
                 Upload Bill Images / PDFs
@@ -368,7 +335,7 @@ export default function NewClaim() {
               </button>
               <button
                 type="button"
-                disabled={!amount || parseFloat(amount) <= 0 || files.length === 0}
+              disabled={files.length === 0}
                 onClick={() => setStep(3)}
                 className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -384,13 +351,10 @@ export default function NewClaim() {
           <div className="animate-fade-in space-y-5">
             <h3 className="text-sm font-semibold text-slate-700">Review your claim</h3>
             <div className="space-y-3">
-              <ReviewRow label="Category" value={category || ''} />
+              <ReviewRow label="Category" value="Detected from bill by OCR" />
               <ReviewRow
                 label="Amount"
-                value={`${new Intl.NumberFormat('en-US', {
-                  style: 'currency',
-                  currency,
-                }).format(parseFloat(amount || '0'))} ${currency}`}
+                value={amount ? `${new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(parseFloat(amount))}` : 'Detected from bill by OCR'}
               />
               <ReviewRow label="Files" value={`${files.length} file(s) attached`} />
               <div className="flex flex-wrap gap-2">

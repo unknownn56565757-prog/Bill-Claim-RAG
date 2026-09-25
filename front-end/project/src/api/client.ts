@@ -16,7 +16,7 @@ import {
   policyCitation,
 } from './mockData';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 const API_DELAY = 600;
 
 function delay(ms: number): Promise<void> {
@@ -33,15 +33,9 @@ export async function signIn(
   identifier: string,
   password: string
 ): Promise<AuthResponse> {
-  await delay(API_DELAY);
-  const user = Object.values(MOCK_USERS).find(
-    (u) => u.email === identifier || u.employeeId === identifier
-  );
-  if (!user || user.password !== password) {
-    throw new Error('Invalid credentials. Please check your email/employee ID and password.');
-  }
-  const { password: _, ...safeUser } = user;
-  return { token: MOCK_TOKENS[user.id], user: safeUser };
+  const response = await fetch(`${API_BASE}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifier, password }) });
+  if (!response.ok) throw new Error('Invalid credentials. Please check your email/employee ID and password.');
+  return response.json();
 }
 
 export async function signUp(data: {
@@ -51,50 +45,37 @@ export async function signUp(data: {
   phone: string;
   password: string;
 }): Promise<AuthResponse> {
-  await delay(API_DELAY);
-  if (MOCK_USERS[data.employeeId]) {
-    throw new Error('Employee ID already registered.');
-  }
-  const user: User & { password: string } = {
-    id: genId('u'),
-    name: data.name,
-    email: data.email,
-    employeeId: data.employeeId,
-    phone: data.phone,
-    role: 'employee',
-    password: data.password,
-  };
-  MOCK_USERS[data.employeeId] = user;
-  const token = `mock-jwt-${genId('t')}`;
-  MOCK_TOKENS[user.id] = token;
-  const { password: _, ...safeUser } = user;
-  return { token, user: safeUser };
+  const response = await fetch(`${API_BASE}/auth/signup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+  if (!response.ok) throw new Error('Employee ID or email already registered.');
+  return response.json();
 }
 
 // ─── Claims ───────────────────────────────────────────────────────
 
 export async function fetchEmployeeClaims(employeeId: string): Promise<Claim[]> {
-  await delay(API_DELAY);
-  return getClaimsForEmployee(employeeId);
+  const response = await fetch(`${API_BASE}/claims?employee_id=${encodeURIComponent(employeeId)}`);
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
 }
 
 export async function fetchApproverQueue(): Promise<Claim[]> {
-  await delay(API_DELAY);
-  return getApproverQueue();
+  const response = await fetch(`${API_BASE}/claims`);
+  if (!response.ok) throw new Error(await response.text());
+  const claims: Claim[] = await response.json();
+  return claims.filter((claim) => ['Pending Approval', 'Discrepancy', 'Escalated', 'Under Review'].includes(claim.status));
 }
 
 export async function fetchClaim(id: string): Promise<Claim> {
-  await delay(400);
-  const claim = getClaimById(id);
-  if (!claim) throw new Error('Claim not found');
-  return claim;
+  const response = await fetch(`${API_BASE}/claims/${id}`);
+  if (!response.ok) throw new Error('Claim not found');
+  return response.json();
 }
 
 export interface NewClaimPayload {
   category: ClaimCategory;
   claimedAmount: number;
   currency: string;
-  files: { name: string; type: 'image' | 'pdf'; url: string; size: number }[];
+  files: File[];
 }
 
 export async function submitClaim(
@@ -102,43 +83,24 @@ export async function submitClaim(
   employeeName: string,
   payload: NewClaimPayload
 ): Promise<Claim> {
-  await delay(1200);
-  const claimId = genId('clm');
-  const newClaim: Claim = {
-    id: claimId,
-    employeeId,
-    employeeName,
-    category: payload.category,
-    claimedAmount: payload.claimedAmount,
-    currency: payload.currency,
-    status: 'Submitted',
-    submittedAt: new Date().toISOString(),
-    files: payload.files.map((f, i) => ({ id: `f-${i}`, ...f })),
-    extracted: {
-      vendor: 'Extracting...',
-      date: '—',
-      lineItems: [],
-      total: 0,
-      currency: payload.currency,
-    },
-    timeline: ['Submitted'],
-    currentStep: 'Submitted',
-    chat: [
-      {
-        id: genId('m'),
-        role: 'ai',
-        text: "I've received your claim. I'm extracting the bill details using OCR — this will take a moment.",
-        timestamp: new Date().toISOString(),
-      },
-    ],
-  };
-  MOCK_CLAIMS.unshift(newClaim);
-  return newClaim;
+  const form = new FormData();
+  form.append('employee_id', employeeId);
+  form.append('employee_name', employeeName);
+  form.append('category', payload.category);
+  form.append('claimed_amount', String(payload.claimedAmount));
+  form.append('currency', payload.currency);
+  payload.files.forEach((file) => form.append('files', file));
+  const response = await fetch(`${API_BASE}/claims`, { method: 'POST', body: form });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
 }
 
 // Simulates the backend OCR + AI processing that happens after submission
 export async function processClaimExtraction(claimId: string): Promise<Claim> {
-  await delay(2500);
+  const response = await fetch(`${API_BASE}/claims/${claimId}`);
+  if (!response.ok) throw new Error('Claim not found');
+  return response.json();
+  /*
   const claim = getClaimById(claimId);
   if (!claim) throw new Error('Claim not found');
 
@@ -174,7 +136,43 @@ export async function processClaimExtraction(claimId: string): Promise<Claim> {
     }
   );
 
-  return claim;
+  return claim; */
+}
+
+export async function updateExtractedFields(
+  claimId: string,
+  extracted: { vendor: string; date: string; total: number; lineItems: { id: string; description: string; amount: number }[] },
+  confirmed = false
+): Promise<Claim> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/review`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...extracted, confirmed }),
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function proceedClaim(claimId: string, approved: boolean, claimableAmount: number): Promise<Claim> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/proceed`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ approved, claimableAmount }),
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function retryOcr(claimId: string): Promise<Claim> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/retry-ocr`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function closeClaim(claimId: string): Promise<Claim> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/close`, { method: 'POST' });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
 }
 
 // ─── Approver actions ─────────────────────────────────────────────
@@ -244,13 +242,22 @@ export function connectChat(claimId: string, onMessage: ChatListener): () => voi
   };
 }
 
-export function sendChatMessage(
+export async function sendChatMessage(
   claimId: string,
   text: string,
   role: 'employee' | 'approver' = 'employee'
-): void {
+): Promise<Claim> {
+  if (role !== 'employee') throw new Error('Only employee chat is connected to the API');
+  const response = await fetch(`${API_BASE}/claims/${claimId}/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+  /*
   const claim = getClaimById(claimId);
-  if (!claim) return;
+  if (!claim) throw new Error('Claim not found');
 
   const userMsg: ChatMessage = {
     id: genId('m'),
@@ -277,11 +284,11 @@ export function sendChatMessage(
     const aiResponse = generateAiResponse(text, claim);
     claim.chat.push(aiResponse);
     broadcast(claimId, { ...aiResponse, isTyping: false });
-  }, 2200);
+  }, 2200); */
 }
 
-export function sendQuickReply(claimId: string, reply: QuickReply): void {
-  sendChatMessage(claimId, reply);
+export async function sendQuickReply(claimId: string, reply: string): Promise<Claim> {
+  return sendChatMessage(claimId, reply);
 }
 
 function broadcast(claimId: string, message: ChatMessage) {
