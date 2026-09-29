@@ -15,27 +15,25 @@ COLLECTION_NAME = "travel_policies"
 # Embedding Model
 # --------------------------------
 
-embedding_model = SentenceTransformer(
-    "all-MiniLM-L6-v2"
-)
+embedding_model = None
+collection = None
 
-# --------------------------------
-# Chroma Client
-# --------------------------------
 
-client = chromadb.PersistentClient(
-    path=CHROMA_DB_DIR
-)
-
-collection = client.get_collection(
-    name=COLLECTION_NAME
-)
+def _get_resources():
+    global embedding_model, collection
+    if embedding_model is None:
+        embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    if collection is None:
+        client = chromadb.PersistentClient(path=CHROMA_DB_DIR)
+        collection = client.get_collection(name=COLLECTION_NAME)
+    return embedding_model, collection
 
 # --------------------------------
 # Retrieve Context
 # --------------------------------
 
 def retrieve_context(query: str, n_results: int = 3):
+    embedding_model, collection = _get_resources()
 
     query_embedding = embedding_model.encode(
         query

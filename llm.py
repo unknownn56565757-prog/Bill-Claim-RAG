@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-import google.generativeai as genai
+from groq import Groq
 
 from backend.rag import retrieve_context
 
@@ -10,30 +10,35 @@ from backend.rag import retrieve_context
 
 load_dotenv()
 
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
-if not GOOGLE_API_KEY:
+if not GROQ_API_KEY:
     raise ValueError(
-        "GOOGLE_API_KEY not found in .env file"
+        "GROQ_API_KEY (or the legacy GOOGLE_API_KEY) not found in .env file"
     )
 
 # --------------------------------
 # Configure Gemini
 # --------------------------------
 
-genai.configure(api_key=GOOGLE_API_KEY)
-
-model = genai.GenerativeModel(
-    "gemini-3.6-flash"
-)
+client = Groq(api_key=GROQ_API_KEY)
+model_names = [
+    "openai/gpt-oss-120b",
+    "qwen/qwen3.8-27b",
+]
+configured_model = os.getenv("GROQ_MODEL")
+if configured_model:
+    model_names.insert(0, configured_model)
 
 # --------------------------------
 # Answer Question
 # --------------------------------
 
 def answer_question(question: str):
-
-    context = retrieve_context(question)
+    try:
+        context = retrieve_context(question)
+    except Exception as error:
+        context = f"Policy retrieval is temporarily unavailable: {error}"
 
     if not context.strip():
         return (
@@ -78,19 +83,65 @@ Policy Context:
 Final Answer:
 """
 
-    try:
+    last_error = "unknown Groq error"
+    for model_name in model_names:
+        try:
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0,
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as error:
+            last_error = str(error)
+            if "model" not in last_error.lower() and "not_found" not in last_error.lower():
+                break
+    return "Groq policy review is temporarily unavailable. Please verify the OCR fields and claimable amount manually before proceeding."
 
-        response = model.generate_content(
-            prompt
-        )
 
-        return response.text.strip()
+def answer_conversation(message: str, claim: dict) -> str:
+    """Generate a normal claim conversation grounded by the retrieved policy context."""
+    policy_context = claim.get("policy", {}).get("policyContext", "No policy context was retrieved.")
+    claim_category = claim.get("originalCategory", claim.get("category"))
+    question_category = claim.get("category")
+    prompt = f"""
+You are a helpful expense-claim review assistant.
+Answer the employee's question directly using the retrieved policy context below.
+Be conversational and concise. Do not approve a claim automatically.
+If OCR or the claimable amount is uncertain, ask the employee to verify it.
+Answer in at most 3 short bullets or 80 words. Ask one clear question when clarification is needed.
+The uploaded claim category is {claim_category}. The policy topic requested by the employee is {question_category}.
+When those topics differ, answer the requested policy topic first. Do not reject or redirect the question
+just because the uploaded receipt belongs to another category. Mention the receipt only if it is necessary
+to explain the next step for the claim.
 
-    except Exception as e:
+Employee message:
+{message}
 
-        return (
-            f"Error generating answer: {str(e)}"
-        )
+Claim details:
+{claim.get('extracted', {})}
+Claimed amount: {claim.get('claimedAmount')} {claim.get('currency')}
+Claim category: {claim_category}
+Requested policy topic: {question_category}
+
+Retrieved policy context:
+{policy_context}
+"""
+    last_error = "unknown Groq error"
+    for model_name in model_names:
+        try:
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+            )
+            text = response.choices[0].message.content.strip()
+            return text if len(text) <= 600 else text[:597].rsplit(" ", 1)[0] + "..."
+        except Exception as error:
+            last_error = str(error)
+            if "model" not in last_error.lower() and "not_found" not in last_error.lower():
+                break
+    return f"I could not complete the AI response. Please verify the extracted fields manually. ({last_error})"
 
 # --------------------------------
 # Interactive Test

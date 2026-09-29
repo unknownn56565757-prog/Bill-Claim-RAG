@@ -12,4 +12,9 @@ google-generativeai
 python-dotenv
 torch
 sentence-transformers
+fastapi
+uvicorn[standard]
+python-multipart
+httpx
+groq
 
